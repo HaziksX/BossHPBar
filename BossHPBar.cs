@@ -13,7 +13,7 @@ using P2Actor = P2.GameSystem.Actor;
 
 namespace BossHPBar
 {
-    [BepInPlugin("com.haziksx.bosshpbar", "BossHPBar", "0.2.0")]
+    [BepInPlugin("com.haziksx.bosshpbar", "BossHPBar", "0.3.0")]
     public class BossHealthPlugin : BasePlugin
     {
         public static ManualLogSource PluginLogger;
@@ -24,7 +24,7 @@ namespace BossHPBar
             ClassInjector.RegisterTypeInIl2Cpp<BossHealthUIController>();
             Harmony.CreateAndPatchAll(typeof(BossHealthPatches));
 
-            PluginLogger.LogInfo("[Boss Health Bar] Mod załadowany pomyślnie (Patapon 1 & 2).");
+            PluginLogger.LogInfo("[BossHPBar] Plugin succesfully loaded (Patapon 1 & 2).");
         }
     }
 
