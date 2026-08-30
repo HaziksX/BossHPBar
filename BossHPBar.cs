@@ -116,11 +116,15 @@ namespace BossHPBar
             var boss = BossHealthPatches.ActiveBossActor;
             if (boss == null || boss.Pointer == IntPtr.Zero) return;
 
-            // Zapisujemy oryginalne kolory ORAZ oryginalną teksturę GUI.Box
+            // --- ZAPISYWANIE ORYGINALNYCH USTAWIEŃ GUI ---
             Color origBg = GUI.backgroundColor;
             Color origContent = GUI.contentColor;
             Color origColor = GUI.color;
             Texture2D origBoxBg = GUI.skin.box.normal.background;
+
+            TextAnchor origAlignment = GUI.skin.label.alignment;
+            int origFontSize = GUI.skin.label.fontSize;
+            FontStyle origFontStyle = GUI.skin.label.fontStyle;
 
             try
             {
@@ -143,91 +147,114 @@ namespace BossHPBar
 
                 _animatedHp = Mathf.Lerp(_animatedHp, currentHp, Time.deltaTime * 6f);
 
-                float barWidth = 600f;
-                float barHeight = 24f;
-                float border = 3f;
+                // --- SKALOWANIE INTERFEJSU ---
+                float scale = Screen.height / 1080f;
+
+                // Trochę węższy (było 850, jest 700)
+                float barWidth = 700f * scale;
+                float barHeight = 32f * scale; // Lekko grubszy, by dobrze pomieścić wszystkie teksty w środku
+                float border = 3f * scale;
 
                 float x = (Screen.width - barWidth) / 2f;
-                float y = 35f;
+                // Pasek wyżej (było 100, jest 55)
+                float y = 55f * scale;
 
-                // Podmieniamy tło GUI.Box na wbudowaną biel, dzięki temu
-                // GUI.backgroundColor będzie mnożyć kolory poprawnie bez szarości.
                 GUI.skin.box.normal.background = Texture2D.whiteTexture;
 
-                // Biała obwódka
+                // 1. Biała obwódka
                 GUI.backgroundColor = Color.white;
                 GUI.Box(new Rect(x - border, y - border, barWidth + (border * 2), barHeight + (border * 2)), "");
 
-                // Ciemne tło ("tor") pod paskiem
+                // 2. Ciemne tło paska
                 GUI.backgroundColor = new Color(0.12f, 0.12f, 0.12f, 0.9f);
                 GUI.Box(new Rect(x, y, barWidth, barHeight), "");
 
-                // Czerwony pasek - symulacja gradientu
+                // 3. Czerwony pasek z 3-stopniowym gradientem
                 float fillRatio = Mathf.Clamp01(_animatedHp / maxHp);
                 if (fillRatio > 0f)
                 {
-                    Color jasnaCzerwien = new Color(0.95f, 0.30f, 0.22f, 1f);
-                    Color ciemnaCzerwien = new Color(0.55f, 0.04f, 0.04f, 1f);
+                    Color jasnaCzerwien = new Color(1.0f, 0.25f, 0.2f, 1f);
+                    Color ciemnaCzerwien = new Color(0.35f, 0.0f, 0.0f, 1f);
 
                     float filledWidth = barWidth * fillRatio;
-                    int totalSlices = 40;
+                    int totalSlices = 80;
                     float sliceWidth = barWidth / totalSlices;
 
-                    // Rysujemy po kolei sąsiadujące wąskie paski
                     for (int i = 0; i < totalSlices; i++)
                     {
                         float sliceX = x + (i * sliceWidth);
-
-                        // Przerwij, jeśli ten pasek wychodzi poza obecne HP
                         if (sliceX >= x + filledWidth) break;
 
                         float currentSliceWidth = sliceWidth;
-                        // Jeśli plasterek wystaje poza wypełnienie, docinamy go,
-                        // aby pasek był idealnie gładki, a nie "schodkowy"
                         if (sliceX + sliceWidth > x + filledWidth)
                         {
                             currentSliceWidth = (x + filledWidth) - sliceX;
                         }
 
-                        // Interpolacja gradientu na szerokości całego, maksymalnego paska
                         float t = (float)i / (totalSlices - 1);
-                        GUI.backgroundColor = Color.Lerp(jasnaCzerwien, ciemnaCzerwien, t);
+                        float odlegloscOdSrodka = Mathf.Abs(t - 0.5f) * 2f;
 
+                        GUI.backgroundColor = Color.Lerp(jasnaCzerwien, ciemnaCzerwien, odlegloscOdSrodka);
                         GUI.Box(new Rect(sliceX, y, currentSliceWidth, barHeight), "");
                     }
                 }
 
+                // --- TEKSTY W ŚRODKU PASKA ---
                 string bossName = BossHealthPatches.ActiveBossName.ToUpper();
-
-                // Cień nazwy bossa
-                GUI.contentColor = Color.black;
-                GUI.Label(new Rect(x + 1, y - 24, barWidth, 22), bossName);
-
-                // Właściwa nazwa bossa
-                GUI.contentColor = new Color(1f, 0.85f, 0f);
-                GUI.Label(new Rect(x, y - 25, barWidth, 22), bossName);
-
+                string hpText = $"{currentHp} / {maxHp}";
                 int pct = Mathf.RoundToInt(((float)currentHp / maxHp) * 100f);
-                string hpText = $"{currentHp} / {maxHp} ({pct}%)";
+                string pctText = $"{pct}%";
 
-                // Tekst HP z cieniem
-                GUI.contentColor = Color.black;
-                GUI.Label(new Rect(x + 1, y + 2, barWidth, barHeight), hpText);
-                GUI.contentColor = Color.white;
-                GUI.Label(new Rect(x, y + 1, barWidth, barHeight), hpText);
+                float shadow = 2f * scale;
+                float padding = 15f * scale; // Odstęp od krawędzi paska dla nazwy i procentów
+
+                // Definiujemy obszary dla tekstów - wszystkie mają wysokość "barHeight" żeby ładnie wyśrodkowały się w pionie
+                Rect leftRect = new Rect(x + padding, y, barWidth, barHeight);
+                Rect centerRect = new Rect(x, y, barWidth, barHeight);
+                Rect rightRect = new Rect(x, y, barWidth - padding, barHeight);
+
+                GUI.skin.label.fontStyle = FontStyle.Bold;
+                GUI.skin.label.fontSize = (int)(20 * scale); // Jednakowy rozmiar fontu dla wszystkiego
+
+                // NAZWA (Złota, Lewa strona w środku paska)
+                GUI.skin.label.alignment = TextAnchor.MiddleLeft;
+
+                GUI.contentColor = Color.black; // Cień
+                GUI.Label(new Rect(leftRect.x + shadow, leftRect.y + shadow, leftRect.width, leftRect.height), bossName);
+                GUI.contentColor = new Color(1f, 0.85f, 0f); // Złoty
+                GUI.Label(leftRect, bossName);
+
+                // PROCENTY (Białe, Prawa strona w środku paska)
+                GUI.skin.label.alignment = TextAnchor.MiddleRight;
+
+                GUI.contentColor = Color.black; // Cień
+                GUI.Label(new Rect(rightRect.x + shadow, rightRect.y + shadow, rightRect.width, rightRect.height), pctText);
+                GUI.contentColor = Color.white; // Biały
+                GUI.Label(rightRect, pctText);
+
+                // HP (Białe, Środek paska)
+                GUI.skin.label.alignment = TextAnchor.MiddleCenter;
+
+                GUI.contentColor = Color.black; // Cień
+                GUI.Label(new Rect(centerRect.x + shadow, centerRect.y + shadow, centerRect.width, centerRect.height), hpText);
+                GUI.contentColor = Color.white; // Biały
+                GUI.Label(centerRect, hpText);
             }
             catch (Exception ex)
             {
-                // Zmieniono na {ex}
                 BossHealthPlugin.PluginLogger.LogError($"[ONGUI ERROR] {ex}");
             }
             finally
             {
-                // ZAWSZE przywracamy domyślne kolory i wbudowane tekstury!
+                // --- PRZYWRACANIE ORYGINALNYCH USTAWIEŃ GUI ---
                 GUI.backgroundColor = origBg;
                 GUI.contentColor = origContent;
                 GUI.color = origColor;
                 GUI.skin.box.normal.background = origBoxBg;
+
+                GUI.skin.label.alignment = origAlignment;
+                GUI.skin.label.fontSize = origFontSize;
+                GUI.skin.label.fontStyle = origFontStyle;
             }
         }
     }
