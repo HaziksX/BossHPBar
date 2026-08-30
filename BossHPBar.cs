@@ -5,14 +5,15 @@ using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
-using P2.GameSystem;
-using P2.GameSystem.Actor;
-using P2.GameSystem.Actor.Status;
 using UnityEngine;
+
+// Zostawiamy aliasy dla głównych aktorów:
+using P1Actor = P1.GameSystem.Actor;
+using P2Actor = P2.GameSystem.Actor;
 
 namespace BossHPBar
 {
-    [BepInPlugin("com.haziksx.bosshpbar", "BossHPBar", "0.1.0")]
+    [BepInPlugin("com.haziksx.bosshpbar", "BossHPBar", "0.2.0")]
     public class BossHealthPlugin : BasePlugin
     {
         public static ManualLogSource PluginLogger;
@@ -23,19 +24,43 @@ namespace BossHPBar
             ClassInjector.RegisterTypeInIl2Cpp<BossHealthUIController>();
             Harmony.CreateAndPatchAll(typeof(BossHealthPatches));
 
-            PluginLogger.LogInfo("[Boss Health Bar] Mod załadowany pomyślnie.");
+            PluginLogger.LogInfo("[Boss Health Bar] Mod załadowany pomyślnie (Patapon 1 & 2).");
         }
     }
 
     public static class BossHealthPatches
     {
-        public static ActorObj ActiveBossActor = null;
+        public static IntPtr ActiveBossPointer = IntPtr.Zero;
         public static string ActiveBossName = "BOSS";
-        public static float LastUpdateTime = 0f; // <-- NOWE: Śledzenie czasu ostatniej aktualizacji bossa
+        public static float LastUpdateTime = 0f;
+
+        public static Func<(int currentHp, int maxHp)> GetHpValues = null;
+
         private static bool _uiInitialized = false;
 
         private static readonly Dictionary<string, string> BossIds = new Dictionary<string, string>
         {
+            // --- PATAPON 1 ---
+            { "unit101_01_01", "Dodonga" },
+            { "unit108_01_01", "Majidonga" },
+            { "unit111_01_01", "Ciokina" },
+            { "unit112_01_01", "Cioking" },
+            { "unit113_01_01", "Shookle" },
+            { "unit114_01_01", "Shooshookle" },
+            { "unit115_01_01", "Gaeen" },
+            { "unit116_01_01", "Dogaeen" },
+            { "unit120_01_01", "Zaknel" },
+            { "unit121_01_01", "Dokaknel" },
+            { "unit122_01_01", "Goruru" },
+            { "unit123_01_01", "Garuru" },
+            { "unit126_01_01", "Manboth" },
+            { "unit127_01_01", "Manboroth" },
+            { "unit128_01_01", "Centura" },
+            { "unit129_01_01", "Darantula" },
+            { "unit132_01_01", "Gorl" },
+            { "unit133_01_01", "Kharma" },
+
+            // --- PATAPON 2 ---
             { "unit201_01_01", "Dodonga" },
             { "unit208_01_01", "Majidonga" },
             { "unit242_01_01", "Kacchindonga" },
@@ -77,9 +102,12 @@ namespace BossHPBar
             }
         }
 
-        [HarmonyPatch(typeof(ActorObj), "createActorStatus")]
+        // ==========================================
+        // HOOKI DLA PATAPON 2
+        // ==========================================
+        [HarmonyPatch(typeof(P2Actor.ActorObj), "createActorStatus")]
         [HarmonyPostfix]
-        public static void PostSpawnBossHook(string pArcResourceNode, ActorObj __instance)
+        public static void PostSpawnBossHookP2(string pArcResourceNode, P2Actor.ActorObj __instance)
         {
             EnsureUIExists();
             if (string.IsNullOrEmpty(pArcResourceNode)) return;
@@ -89,21 +117,82 @@ namespace BossHPBar
                 if (pArcResourceNode.Contains(kvp.Key))
                 {
                     ActiveBossName = kvp.Value;
-                    ActiveBossActor = __instance;
-                    LastUpdateTime = Time.time; // <-- Resetujemy czas po znalezieniu bossa
+                    ActiveBossPointer = __instance.Pointer;
+                    LastUpdateTime = Time.time;
+
+                    GetHpValues = () =>
+                    {
+                        if (__instance == null || __instance.Pointer == IntPtr.Zero || __instance.WasCollected) return (0, 0);
+
+                        // Używamy "var" - kompilator sam dowie się, czym jest pActorStatus_
+                        var statusObj = __instance.pActorStatus_;
+                        if (statusObj == null || statusObj.Pointer == IntPtr.Zero || statusObj.WasCollected) return (0, 0);
+
+                        // Jawnie rzutujemy na GameStatus z przestrzeni P2.GameSystem
+                        var stats = statusObj.TryCast<P2.GameSystem.GameStatus>();
+                        if (stats == null || stats.WasCollected) return (0, 0);
+
+                        return (stats.getHitPoint(), stats.getMaxHitPoint());
+                    };
                     break;
                 }
             }
         }
 
-        [HarmonyPatch(typeof(ActorObj), "update")]
+        [HarmonyPatch(typeof(P2Actor.ActorObj), "update")]
         [HarmonyPostfix]
-        public static void PostActorUpdateHook(ActorObj __instance)
+        public static void PostActorUpdateHookP2(P2Actor.ActorObj __instance)
         {
             EnsureUIExists();
+            if (ActiveBossPointer != IntPtr.Zero && __instance.Pointer == ActiveBossPointer)
+            {
+                LastUpdateTime = Time.time;
+            }
+        }
 
-            // Jeśli obecnie aktualizowany aktor to nasz aktywny boss, zapisujemy obecny czas
-            if (ActiveBossActor != null && __instance.Pointer == ActiveBossActor.Pointer)
+        // ==========================================
+        // HOOKI DLA PATAPON 1
+        // ==========================================
+        [HarmonyPatch(typeof(P1Actor.ActorObj), "createActorStatus")]
+        [HarmonyPostfix]
+        public static void PostSpawnBossHookP1(string pArcResourceNode, P1Actor.ActorObj __instance)
+        {
+            EnsureUIExists();
+            if (string.IsNullOrEmpty(pArcResourceNode)) return;
+
+            foreach (var kvp in BossIds)
+            {
+                if (pArcResourceNode.Contains(kvp.Key))
+                {
+                    ActiveBossName = kvp.Value;
+                    ActiveBossPointer = __instance.Pointer;
+                    LastUpdateTime = Time.time;
+
+                    GetHpValues = () =>
+                    {
+                        if (__instance == null || __instance.Pointer == IntPtr.Zero || __instance.WasCollected) return (0, 0);
+
+                        // Używamy "var"
+                        var statusObj = __instance.pActorStatus_;
+                        if (statusObj == null || statusObj.Pointer == IntPtr.Zero || statusObj.WasCollected) return (0, 0);
+
+                        // Jawnie rzutujemy na GameStatus z przestrzeni P1.GameSystem
+                        var stats = statusObj.TryCast<P1.GameSystem.GameStatus>();
+                        if (stats == null || stats.WasCollected) return (0, 0);
+
+                        return (stats.getHitPoint(), stats.getMaxHitPoint());
+                    };
+                    break;
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(P1Actor.ActorObj), "update")]
+        [HarmonyPostfix]
+        public static void PostActorUpdateHookP1(P1Actor.ActorObj __instance)
+        {
+            EnsureUIExists();
+            if (ActiveBossPointer != IntPtr.Zero && __instance.Pointer == ActiveBossPointer)
             {
                 LastUpdateTime = Time.time;
             }
@@ -115,28 +204,41 @@ namespace BossHPBar
         public BossHealthUIController(IntPtr handle) : base(handle) { }
 
         private float _animatedHp = -1f;
-        private ActorObj _lastBoss = null;
+        private IntPtr _lastBossPointer = IntPtr.Zero;
 
         public void OnGUI()
         {
-            var boss = BossHealthPatches.ActiveBossActor;
+            IntPtr bossPtr = BossHealthPatches.ActiveBossPointer;
 
-            // 1. Ochrona pamięciowa
-            if (boss == null || boss.Pointer == IntPtr.Zero || boss.WasCollected)
+            if (bossPtr == IntPtr.Zero || BossHealthPatches.GetHpValues == null)
             {
-                BossHealthPatches.ActiveBossActor = null;
                 return;
             }
 
-            // 2. TIMEOUT: Jeśli od ostatniej aktualizacji stanu bossa minęło ponad 0.5 sekundy,
-            // oznacza to, że misja się skończyła lub gra przestała obsługiwać tego aktora.
             if (Time.time - BossHealthPatches.LastUpdateTime > 0.5f)
             {
-                BossHealthPatches.ActiveBossActor = null;
+                BossHealthPatches.ActiveBossPointer = IntPtr.Zero;
+                BossHealthPatches.GetHpValues = null;
                 return;
             }
 
-            // --- ZAPISYWANIE ORYGINALNYCH USTAWIEŃ GUI ---
+            var (currentHp, maxHp) = BossHealthPatches.GetHpValues();
+
+            if (currentHp <= 0 || maxHp <= 1)
+            {
+                BossHealthPatches.ActiveBossPointer = IntPtr.Zero;
+                BossHealthPatches.GetHpValues = null;
+                return;
+            }
+
+            if (_lastBossPointer != bossPtr)
+            {
+                _animatedHp = currentHp;
+                _lastBossPointer = bossPtr;
+            }
+
+            _animatedHp = Mathf.Lerp(_animatedHp, currentHp, Time.deltaTime * 6f);
+
             Color origBg = GUI.backgroundColor;
             Color origContent = GUI.contentColor;
             Color origColor = GUI.color;
@@ -148,31 +250,6 @@ namespace BossHPBar
 
             try
             {
-                ActorStatusObj statusObj = boss.pActorStatus_;
-                if (statusObj == null || statusObj.Pointer == IntPtr.Zero || statusObj.WasCollected) return;
-
-                GameStatus bossStats = statusObj.TryCast<GameStatus>();
-                if (bossStats == null || bossStats.WasCollected) return;
-
-                int currentHp = bossStats.getHitPoint();
-                int maxHp = bossStats.getMaxHitPoint();
-
-                // 3. Dodatkowe zabezpieczenie: Boss z 1 max HP to "zresetowany" dummy, nie rysujemy go
-                if (currentHp <= 0 || maxHp <= 1)
-                {
-                    BossHealthPatches.ActiveBossActor = null;
-                    return;
-                }
-
-                if (_lastBoss != boss)
-                {
-                    _animatedHp = currentHp;
-                    _lastBoss = boss;
-                }
-
-                _animatedHp = Mathf.Lerp(_animatedHp, currentHp, Time.deltaTime * 6f);
-
-                // --- SKALOWANIE INTERFEJSU ---
                 float scale = Screen.height / 1080f;
 
                 float barWidth = 700f * scale;
@@ -184,15 +261,12 @@ namespace BossHPBar
 
                 GUI.skin.box.normal.background = Texture2D.whiteTexture;
 
-                // 1. Biała obwódka
                 GUI.backgroundColor = Color.white;
                 GUI.Box(new Rect(x - border, y - border, barWidth + (border * 2), barHeight + (border * 2)), "");
 
-                // 2. Ciemne tło paska
                 GUI.backgroundColor = new Color(0.12f, 0.12f, 0.12f, 0.9f);
                 GUI.Box(new Rect(x, y, barWidth, barHeight), "");
 
-                // 3. Czerwony pasek z 3-stopniowym gradientem
                 float fillRatio = Mathf.Clamp01(_animatedHp / maxHp);
                 if (fillRatio > 0f)
                 {
@@ -222,7 +296,6 @@ namespace BossHPBar
                     }
                 }
 
-                // --- TEKSTY W ŚRODKU PASKA ---
                 string bossName = BossHealthPatches.ActiveBossName.ToUpper();
                 string hpText = $"{currentHp} / {maxHp}";
                 int pct = Mathf.RoundToInt(((float)currentHp / maxHp) * 100f);
@@ -238,21 +311,18 @@ namespace BossHPBar
                 GUI.skin.label.fontStyle = FontStyle.Bold;
                 GUI.skin.label.fontSize = (int)(20 * scale);
 
-                // NAZWA
                 GUI.skin.label.alignment = TextAnchor.MiddleLeft;
                 GUI.contentColor = Color.black;
                 GUI.Label(new Rect(leftRect.x + shadow, leftRect.y + shadow, leftRect.width, leftRect.height), bossName);
                 GUI.contentColor = new Color(1f, 0.85f, 0f);
                 GUI.Label(leftRect, bossName);
 
-                // PROCENTY
                 GUI.skin.label.alignment = TextAnchor.MiddleRight;
                 GUI.contentColor = Color.black;
                 GUI.Label(new Rect(rightRect.x + shadow, rightRect.y + shadow, rightRect.width, rightRect.height), pctText);
                 GUI.contentColor = Color.white;
                 GUI.Label(rightRect, pctText);
 
-                // HP
                 GUI.skin.label.alignment = TextAnchor.MiddleCenter;
                 GUI.contentColor = Color.black;
                 GUI.Label(new Rect(centerRect.x + shadow, centerRect.y + shadow, centerRect.width, centerRect.height), hpText);
@@ -265,7 +335,6 @@ namespace BossHPBar
             }
             finally
             {
-                // --- PRZYWRACANIE ORYGINALNYCH USTAWIEŃ GUI ---
                 GUI.backgroundColor = origBg;
                 GUI.contentColor = origContent;
                 GUI.color = origColor;
