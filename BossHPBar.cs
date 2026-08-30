@@ -31,6 +31,7 @@ namespace BossHPBar
     {
         public static ActorObj ActiveBossActor = null;
         public static string ActiveBossName = "BOSS";
+        public static float LastUpdateTime = 0f; // <-- NOWE: Śledzenie czasu ostatniej aktualizacji bossa
         private static bool _uiInitialized = false;
 
         private static readonly Dictionary<string, string> BossIds = new Dictionary<string, string>
@@ -63,7 +64,6 @@ namespace BossHPBar
         private static void EnsureUIExists()
         {
             if (_uiInitialized) return;
-
             try
             {
                 var go = new GameObject("BossHealthUIManager");
@@ -73,7 +73,6 @@ namespace BossHPBar
             }
             catch (Exception ex)
             {
-                // Zmieniono na {ex}, by wyświetlało pełny stack trace
                 BossHealthPlugin.PluginLogger.LogError($"[UI INITIALIZATION ERROR] {ex}");
             }
         }
@@ -91,6 +90,7 @@ namespace BossHPBar
                 {
                     ActiveBossName = kvp.Value;
                     ActiveBossActor = __instance;
+                    LastUpdateTime = Time.time; // <-- Resetujemy czas po znalezieniu bossa
                     break;
                 }
             }
@@ -101,6 +101,12 @@ namespace BossHPBar
         public static void PostActorUpdateHook(ActorObj __instance)
         {
             EnsureUIExists();
+
+            // Jeśli obecnie aktualizowany aktor to nasz aktywny boss, zapisujemy obecny czas
+            if (ActiveBossActor != null && __instance.Pointer == ActiveBossActor.Pointer)
+            {
+                LastUpdateTime = Time.time;
+            }
         }
     }
 
@@ -114,7 +120,21 @@ namespace BossHPBar
         public void OnGUI()
         {
             var boss = BossHealthPatches.ActiveBossActor;
-            if (boss == null || boss.Pointer == IntPtr.Zero) return;
+
+            // 1. Ochrona pamięciowa
+            if (boss == null || boss.Pointer == IntPtr.Zero || boss.WasCollected)
+            {
+                BossHealthPatches.ActiveBossActor = null;
+                return;
+            }
+
+            // 2. TIMEOUT: Jeśli od ostatniej aktualizacji stanu bossa minęło ponad 0.5 sekundy,
+            // oznacza to, że misja się skończyła lub gra przestała obsługiwać tego aktora.
+            if (Time.time - BossHealthPatches.LastUpdateTime > 0.5f)
+            {
+                BossHealthPatches.ActiveBossActor = null;
+                return;
+            }
 
             // --- ZAPISYWANIE ORYGINALNYCH USTAWIEŃ GUI ---
             Color origBg = GUI.backgroundColor;
@@ -129,15 +149,20 @@ namespace BossHPBar
             try
             {
                 ActorStatusObj statusObj = boss.pActorStatus_;
-                if (statusObj == null || statusObj.Pointer == IntPtr.Zero) return;
+                if (statusObj == null || statusObj.Pointer == IntPtr.Zero || statusObj.WasCollected) return;
 
                 GameStatus bossStats = statusObj.TryCast<GameStatus>();
-                if (bossStats == null) return;
+                if (bossStats == null || bossStats.WasCollected) return;
 
                 int currentHp = bossStats.getHitPoint();
                 int maxHp = bossStats.getMaxHitPoint();
 
-                if (currentHp <= 0 || maxHp <= 0) return;
+                // 3. Dodatkowe zabezpieczenie: Boss z 1 max HP to "zresetowany" dummy, nie rysujemy go
+                if (currentHp <= 0 || maxHp <= 1)
+                {
+                    BossHealthPatches.ActiveBossActor = null;
+                    return;
+                }
 
                 if (_lastBoss != boss)
                 {
@@ -150,13 +175,11 @@ namespace BossHPBar
                 // --- SKALOWANIE INTERFEJSU ---
                 float scale = Screen.height / 1080f;
 
-                // Trochę węższy (było 850, jest 700)
                 float barWidth = 700f * scale;
-                float barHeight = 32f * scale; // Lekko grubszy, by dobrze pomieścić wszystkie teksty w środku
+                float barHeight = 32f * scale;
                 float border = 3f * scale;
 
                 float x = (Screen.width - barWidth) / 2f;
-                // Pasek wyżej (było 100, jest 55)
                 float y = 55f * scale;
 
                 GUI.skin.box.normal.background = Texture2D.whiteTexture;
@@ -206,38 +229,34 @@ namespace BossHPBar
                 string pctText = $"{pct}%";
 
                 float shadow = 2f * scale;
-                float padding = 15f * scale; // Odstęp od krawędzi paska dla nazwy i procentów
+                float padding = 15f * scale;
 
-                // Definiujemy obszary dla tekstów - wszystkie mają wysokość "barHeight" żeby ładnie wyśrodkowały się w pionie
                 Rect leftRect = new Rect(x + padding, y, barWidth, barHeight);
                 Rect centerRect = new Rect(x, y, barWidth, barHeight);
                 Rect rightRect = new Rect(x, y, barWidth - padding, barHeight);
 
                 GUI.skin.label.fontStyle = FontStyle.Bold;
-                GUI.skin.label.fontSize = (int)(20 * scale); // Jednakowy rozmiar fontu dla wszystkiego
+                GUI.skin.label.fontSize = (int)(20 * scale);
 
-                // NAZWA (Złota, Lewa strona w środku paska)
+                // NAZWA
                 GUI.skin.label.alignment = TextAnchor.MiddleLeft;
-
-                GUI.contentColor = Color.black; // Cień
+                GUI.contentColor = Color.black;
                 GUI.Label(new Rect(leftRect.x + shadow, leftRect.y + shadow, leftRect.width, leftRect.height), bossName);
-                GUI.contentColor = new Color(1f, 0.85f, 0f); // Złoty
+                GUI.contentColor = new Color(1f, 0.85f, 0f);
                 GUI.Label(leftRect, bossName);
 
-                // PROCENTY (Białe, Prawa strona w środku paska)
+                // PROCENTY
                 GUI.skin.label.alignment = TextAnchor.MiddleRight;
-
-                GUI.contentColor = Color.black; // Cień
+                GUI.contentColor = Color.black;
                 GUI.Label(new Rect(rightRect.x + shadow, rightRect.y + shadow, rightRect.width, rightRect.height), pctText);
-                GUI.contentColor = Color.white; // Biały
+                GUI.contentColor = Color.white;
                 GUI.Label(rightRect, pctText);
 
-                // HP (Białe, Środek paska)
+                // HP
                 GUI.skin.label.alignment = TextAnchor.MiddleCenter;
-
-                GUI.contentColor = Color.black; // Cień
+                GUI.contentColor = Color.black;
                 GUI.Label(new Rect(centerRect.x + shadow, centerRect.y + shadow, centerRect.width, centerRect.height), hpText);
-                GUI.contentColor = Color.white; // Biały
+                GUI.contentColor = Color.white;
                 GUI.Label(centerRect, hpText);
             }
             catch (Exception ex)
