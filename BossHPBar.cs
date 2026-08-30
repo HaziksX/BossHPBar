@@ -73,7 +73,8 @@ namespace BossHPBar
             }
             catch (Exception ex)
             {
-                BossHealthPlugin.PluginLogger.LogError($"[UI INITIALIZATION ERROR] {ex.Message}");
+                // Zmieniono na {ex}, by wyświetlało pełny stack trace
+                BossHealthPlugin.PluginLogger.LogError($"[UI INITIALIZATION ERROR] {ex}");
             }
         }
 
@@ -115,6 +116,12 @@ namespace BossHPBar
             var boss = BossHealthPatches.ActiveBossActor;
             if (boss == null || boss.Pointer == IntPtr.Zero) return;
 
+            // Zapisujemy oryginalne kolory ORAZ oryginalną teksturę GUI.Box
+            Color origBg = GUI.backgroundColor;
+            Color origContent = GUI.contentColor;
+            Color origColor = GUI.color;
+            Texture2D origBoxBg = GUI.skin.box.normal.background;
+
             try
             {
                 ActorStatusObj statusObj = boss.pActorStatus_;
@@ -143,45 +150,84 @@ namespace BossHPBar
                 float x = (Screen.width - barWidth) / 2f;
                 float y = 35f;
 
-                Color origBg = GUI.backgroundColor;
-                Color origContent = GUI.contentColor;
+                // Podmieniamy tło GUI.Box na wbudowaną biel, dzięki temu
+                // GUI.backgroundColor będzie mnożyć kolory poprawnie bez szarości.
+                GUI.skin.box.normal.background = Texture2D.whiteTexture;
 
-                GUI.backgroundColor = Color.black;
+                // Biała obwódka
+                GUI.backgroundColor = Color.white;
                 GUI.Box(new Rect(x - border, y - border, barWidth + (border * 2), barHeight + (border * 2)), "");
 
+                // Ciemne tło ("tor") pod paskiem
                 GUI.backgroundColor = new Color(0.12f, 0.12f, 0.12f, 0.9f);
                 GUI.Box(new Rect(x, y, barWidth, barHeight), "");
 
+                // Czerwony pasek - symulacja gradientu
                 float fillRatio = Mathf.Clamp01(_animatedHp / maxHp);
                 if (fillRatio > 0f)
                 {
-                    GUI.backgroundColor = new Color(0.85f, 0.15f, 0.15f, 1f);
-                    GUI.Box(new Rect(x, y, barWidth * fillRatio, barHeight), "");
-                }
+                    Color jasnaCzerwien = new Color(0.95f, 0.30f, 0.22f, 1f);
+                    Color ciemnaCzerwien = new Color(0.55f, 0.04f, 0.04f, 1f);
 
-                GUI.backgroundColor = origBg;
+                    float filledWidth = barWidth * fillRatio;
+                    int totalSlices = 40;
+                    float sliceWidth = barWidth / totalSlices;
+
+                    // Rysujemy po kolei sąsiadujące wąskie paski
+                    for (int i = 0; i < totalSlices; i++)
+                    {
+                        float sliceX = x + (i * sliceWidth);
+
+                        // Przerwij, jeśli ten pasek wychodzi poza obecne HP
+                        if (sliceX >= x + filledWidth) break;
+
+                        float currentSliceWidth = sliceWidth;
+                        // Jeśli plasterek wystaje poza wypełnienie, docinamy go,
+                        // aby pasek był idealnie gładki, a nie "schodkowy"
+                        if (sliceX + sliceWidth > x + filledWidth)
+                        {
+                            currentSliceWidth = (x + filledWidth) - sliceX;
+                        }
+
+                        // Interpolacja gradientu na szerokości całego, maksymalnego paska
+                        float t = (float)i / (totalSlices - 1);
+                        GUI.backgroundColor = Color.Lerp(jasnaCzerwien, ciemnaCzerwien, t);
+
+                        GUI.Box(new Rect(sliceX, y, currentSliceWidth, barHeight), "");
+                    }
+                }
 
                 string bossName = BossHealthPatches.ActiveBossName.ToUpper();
 
+                // Cień nazwy bossa
                 GUI.contentColor = Color.black;
                 GUI.Label(new Rect(x + 1, y - 24, barWidth, 22), bossName);
-                // Nagłówek
+
+                // Właściwa nazwa bossa
                 GUI.contentColor = new Color(1f, 0.85f, 0f);
                 GUI.Label(new Rect(x, y - 25, barWidth, 22), bossName);
 
                 int pct = Mathf.RoundToInt(((float)currentHp / maxHp) * 100f);
                 string hpText = $"{currentHp} / {maxHp} ({pct}%)";
 
+                // Tekst HP z cieniem
                 GUI.contentColor = Color.black;
                 GUI.Label(new Rect(x + 1, y + 2, barWidth, barHeight), hpText);
                 GUI.contentColor = Color.white;
                 GUI.Label(new Rect(x, y + 1, barWidth, barHeight), hpText);
-
-                GUI.contentColor = origContent;
             }
             catch (Exception ex)
             {
-                BossHealthPlugin.PluginLogger.LogError($"[ONGUI ERROR] {ex.Message}");
+                // Zmieniono na {ex}
+                BossHealthPlugin.PluginLogger.LogError($"[ONGUI ERROR] {ex}");
+            }
+            finally
+            {
+                // ZAWSZE przywracamy domyślne kolory i wbudowane tekstury!
+                GUI.backgroundColor = origBg;
+                GUI.contentColor = origContent;
+                GUI.color = origColor;
+                GUI.skin.box.normal.background = origBoxBg;
             }
         }
     }
