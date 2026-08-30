@@ -10,9 +10,9 @@ using P2.GameSystem.Actor;
 using P2.GameSystem.Actor.Status;
 using UnityEngine;
 
-namespace PataponBossHealthBar
+namespace BossHPBar
 {
-    [BepInPlugin("com.twojnick.bosshealthbar", "Boss Health Bar", "1.0.0")]
+    [BepInPlugin("com.haziksx.bosshpbar", "BossHPBar", "0.1.0")]
     public class BossHealthPlugin : BasePlugin
     {
         public static ManualLogSource PluginLogger;
@@ -73,7 +73,7 @@ namespace PataponBossHealthBar
             }
             catch (Exception ex)
             {
-                BossHealthPlugin.PluginLogger.LogError($"[BŁĄD INICJALIZACJI UI] {ex.Message}");
+                BossHealthPlugin.PluginLogger.LogError($"[UI INITIALIZATION ERROR] {ex.Message}");
             }
         }
 
@@ -128,17 +128,14 @@ namespace PataponBossHealthBar
 
                 if (currentHp <= 0 || maxHp <= 0) return;
 
-                // Reset płynnego paska przy zmianie bossa
                 if (_lastBoss != boss)
                 {
                     _animatedHp = currentHp;
                     _lastBoss = boss;
                 }
 
-                // Płynna animacja obrażeń
                 _animatedHp = Mathf.Lerp(_animatedHp, currentHp, Time.deltaTime * 6f);
 
-                // Wymiary i pozycja paska
                 float barWidth = 600f;
                 float barHeight = 24f;
                 float border = 3f;
@@ -146,19 +143,15 @@ namespace PataponBossHealthBar
                 float x = (Screen.width - barWidth) / 2f;
                 float y = 35f;
 
-                // Zapamiętujemy domyślne kolory IMGUI
                 Color origBg = GUI.backgroundColor;
                 Color origContent = GUI.contentColor;
 
-                // 1. Czarna ramka
                 GUI.backgroundColor = Color.black;
                 GUI.Box(new Rect(x - border, y - border, barWidth + (border * 2), barHeight + (border * 2)), "");
 
-                // 2. Ciemnoszare tło paska
                 GUI.backgroundColor = new Color(0.12f, 0.12f, 0.12f, 0.9f);
                 GUI.Box(new Rect(x, y, barWidth, barHeight), "");
 
-                // 3. Czerwone wypełnienie życia
                 float fillRatio = Mathf.Clamp01(_animatedHp / maxHp);
                 if (fillRatio > 0f)
                 {
@@ -166,36 +159,29 @@ namespace PataponBossHealthBar
                     GUI.Box(new Rect(x, y, barWidth * fillRatio, barHeight), "");
                 }
 
-                // Przywracamy domyślne tło dla elementów tekstowych
                 GUI.backgroundColor = origBg;
 
-                // 4. Nazwa Bossa (Złoty napis z cieniem)
                 string bossName = BossHealthPatches.ActiveBossName.ToUpper();
 
-                // Cień
                 GUI.contentColor = Color.black;
                 GUI.Label(new Rect(x + 1, y - 24, barWidth, 22), bossName);
                 // Nagłówek
                 GUI.contentColor = new Color(1f, 0.85f, 0f);
                 GUI.Label(new Rect(x, y - 25, barWidth, 22), bossName);
 
-                // 5. Wartość HP i procenty (Biały napis z cieniem)
                 int pct = Mathf.RoundToInt(((float)currentHp / maxHp) * 100f);
                 string hpText = $"{currentHp} / {maxHp} ({pct}%)";
 
-                // Cień
                 GUI.contentColor = Color.black;
                 GUI.Label(new Rect(x + 1, y + 2, barWidth, barHeight), hpText);
-                // Tekst główny
                 GUI.contentColor = Color.white;
                 GUI.Label(new Rect(x, y + 1, barWidth, barHeight), hpText);
 
-                // Przywracamy domyślny kolor zawartości
                 GUI.contentColor = origContent;
             }
             catch (Exception ex)
             {
-                BossHealthPlugin.PluginLogger.LogError($"[BŁĄD ONGUI] {ex.Message}");
+                BossHealthPlugin.PluginLogger.LogError($"[ONGUI ERROR] {ex.Message}");
             }
         }
     }
