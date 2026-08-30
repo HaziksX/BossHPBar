@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+        <AssemblyMetadata Include="AI_Assisted_Creation" Value="This assembly was partially or fully created with the assistance of Generative AI (e.g., Code Suggestions, Refactoring, Documentation Generation)." />
+        <AssemblyMetadata Include="AI_Model_Vendor" Value="Google" />
+    </ItemGroup>
+  <ItemGroup>
     <Reference Include="0Harmony">
       <HintPath>..\..\..\..\Program Files (x86)\Steam\steamapps\common\PATAPON12_REPLAY\BepInEx\core\0Harmony.dll</HintPath>
     </Reference>
